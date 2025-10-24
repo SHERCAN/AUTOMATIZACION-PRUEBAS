@@ -1,0 +1,37 @@
+# =========================
+# CONFIGURACIÓN GENERAL
+# =========================
+base_url: "https://127.0.0.1:5100"    # URL base del servidor
+
+auth_endpoint: "/api/Auth/LoginSISPRO" # Endpoint para crear el token
+token_duracion_horas: 2                # Tiempo de validez del token (opcional, informativo)
+
+# Credenciales para generar el token
+auth_data:
+  persona:
+    identificacion:
+      tipo: "CC"
+      numero: "123456789"
+  clave: "contrasena"
+  nit: "9090909090"
+  tipoMecanismoValidacion: 0
+  #AppVersion: "5.4.4"
+  reps: true
+
+# =========================
+# CONFIGURACIÓN DE CADA API
+# =========================
+apis:
+  fevrips:
+    endpoint: "/api/PaquetesFevRips/CargarFevRips"
+    carpeta_archivos: "./procesamiento/fevrips"
+    carpeta_respuestas: "./procesamientofevrips"
+    comprimir: false
+    concurrencia: 1
+
+  # ConsultaCUV:
+  #   endpoint: "/api/ConsultasFevRips/ConsultarCUV"
+  #   carpeta_archivos: "./consultar"
+  #   carpeta_respuestas: "./consultar"
+  #   comprimir: false
+  #   concurrencia: 5
