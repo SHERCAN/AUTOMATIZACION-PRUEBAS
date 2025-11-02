@@ -5,7 +5,7 @@ import yaml from "js-yaml";
 import { gzip } from "node-gzip";
 import pLimit from "p-limit";
 import { json } from "stream/consumers";
-
+import Updater from "./updater.js";
 const CONFIG_PATH = "./config.yml";
 
 async function loadConfig() {
@@ -212,4 +212,41 @@ async function ejecutar() {
 
   console.log("✅ Todos los envíos completados.");
 }
-ejecutar().catch((err) => console.error("Error general:", err));
+
+
+
+
+
+// Función de inicio con verificación de actualizaciones
+async function start() {
+  try {
+    // Configurar el updater con tu información de GitHub
+    const updater = new Updater({
+      owner: 'TU_USUARIO_GITHUB',  // Cambia esto
+      repo: 'TU_REPOSITORIO',       // Cambia esto
+      currentVersion: require('./package.json').version
+    });
+
+    // Verificar actualizaciones antes de iniciar
+    console.log('═══════════════════════════════════════');
+    console.log('  Verificador de Actualizaciones');
+    console.log('═══════════════════════════════════════\n');
+    
+    const updated = await updater.update();
+    
+    // Si no hay actualización o hay error, continuar normalmente
+    if (!updated) {
+      console.log('\n═══════════════════════════════════════\n');
+      await ejecutar().catch((err) => console.error("Error general:", err));
+    }
+    // Si hay actualización, el updater reiniciará la app automáticamente
+    
+  } catch (error) {
+    console.error('Error al iniciar:', error);
+    // En caso de error, ejecutar la aplicación de todas formas
+    await ejecutar().catch((err) => console.error("Error general:", err));
+  }
+}
+
+// Iniciar la aplicación
+start();
