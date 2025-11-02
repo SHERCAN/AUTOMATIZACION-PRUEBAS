@@ -210,18 +210,13 @@ async function ejecutar() {
 
   console.log("✅ Todos los envíos completados.");
 }
-
-
-
-
-
 // Función de inicio con verificación de actualizaciones
 async function start() {
   try {
     // Configurar el updater con tu información de GitHub
     const updater = new Updater({
-      owner: 'TU_USUARIO_GITHUB',  // Cambia esto
-      repo: 'TU_REPOSITORIO',       // Cambia esto
+      owner: 'SHERCAN',  // Cambia esto
+      repo: 'AUTOMATIZACION-PRUEBAS',       // Cambia esto
       currentVersion: require('./package.json').version
     });
 

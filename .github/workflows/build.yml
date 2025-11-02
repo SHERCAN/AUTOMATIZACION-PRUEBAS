@@ -9,62 +9,107 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release:
-    runs-on: ubuntu-latest
-    
+  build-windows:
+    runs-on: windows-latest
     steps:
     - name: Checkout código
       uses: actions/checkout@v4
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v1
       with:
-        node-version: '22'
-
-    - name: Setup pnpm
-      uses: pnpm/action-setup@v2
-      with:
-        version: 10.12.1
+        bun-version: latest
 
     - name: Instalar dependencias
-      run: pnpm install
+      run: bun install
+
+    - name: Actualizar versión en package.json
+      run: |
+        $VERSION = $env:GITHUB_REF -replace 'refs/tags/v', ''
+        $pkg = Get-Content package.json | ConvertFrom-Json
+        $pkg.version = $VERSION
+        $pkg | ConvertTo-Json -Depth 10 | Set-Content package.json
+
+    - name: Compilar para Windows
+      run: bun build index.js --compile --target=bun-windows-x64 --outfile dist/miapp-win.exe
+
+    - name: Upload Windows artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-executable
+        path: dist/miapp-win.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v1
+      with:
+        bun-version: latest
+
+    - name: Instalar dependencias
+      run: bun install
 
     - name: Actualizar versión en package.json
       run: |
         VERSION=${GITHUB_REF#refs/tags/v}
-        node -e "const pkg=require('./package.json'); pkg.version='$VERSION'; require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
-
-    - name: Crear directorio dist
-      run: mkdir -p dist
-
-    - name: Compilar para Windows
-      run: pnpm run build:pkg:win
+        bun -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json')); pkg.version='$VERSION'; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
 
     - name: Compilar para Linux
-      run: pnpm run build:pkg:linux
+      run: bun build index.js --compile --target=bun-linux-x64 --outfile dist/miapp-linux
 
-    - name: Crear Release con gh CLI
+    - name: Upload Linux artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-executable
+        path: dist/miapp-linux
+
+  create-release:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+
+    - name: Download Windows executable
+      uses: actions/download-artifact@v4
+      with:
+        name: windows-executable
+        path: dist/
+
+    - name: Download Linux executable
+      uses: actions/download-artifact@v4
+      with:
+        name: linux-executable
+        path: dist/
+
+    - name: Crear Release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         VERSION=${GITHUB_REF#refs/tags/}
         
-        # Crear el release con notas
+        chmod +x dist/miapp-linux
+        
         gh release create "$VERSION" \
           --title "Release $VERSION" \
           --notes "## Cambios en esta versión
         
-        Ejecutables compilados automáticamente para Windows y Linux.
+        Ejecutables compilados con Bun runtime.
         
         ### Instalación
-        - **Windows**: Descarga \`miapp-win.exe\`
-        - **Linux**: Descarga \`miapp-linux\` y dale permisos de ejecución con \`chmod +x miapp-linux\`
+        - **Windows**: Descarga \`miapp-win.exe\` y ejecútalo
+        - **Linux**: Descarga \`miapp-linux\`, dale permisos con \`chmod +x miapp-linux\` y ejecútalo
         
         ### Auto-actualización
-        La aplicación verifica automáticamente si hay nuevas versiones al iniciarse.
+        La aplicación verifica automáticamente actualizaciones al iniciarse.
         
         ---
         **Versión**: $VERSION  
+        **Runtime**: Bun  
         **Fecha**: $(date +'%Y-%m-%d %H:%M:%S UTC')" \
           dist/miapp-win.exe \
           dist/miapp-linux

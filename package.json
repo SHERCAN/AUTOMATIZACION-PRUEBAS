@@ -1,18 +1,18 @@
 {
   "name": "automatizacion-pruebas",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "description": "Automatización envío de APIS.",
   "main": "index.js",
   "repository": {
     "type": "git",
     "url": "https://github.com/SHERCAN/AUTOMATIZACION-PRUEBAS"
   },
-  "scripts": {
+"scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
-    "build:pkg:linux": "pkg index.js --targets node16-linux-x64 --output dist/miapp-linux",
-    "build:pkg:win": "pkg index.js --targets node16-win-x64 --output dist/miapp-win.exe",
-    "build:all": "pnpm run build:pkg:win && pnpm run build:pkg:linux"
+    "build:win": "pkg . --targets node20-win-x64 --output dist/miapp-win.exe",
+    "build:linux": "pkg . --targets node20-linux-x64 --output dist/miapp-linux",
+    "build:all": "npm run build:win && npm run build:linux"
   },
   "keywords": [],
   "author": "SHERCAN",
@@ -26,6 +26,7 @@
     "p-limit": "^7.2.0"
   },
   "devDependencies": {
-    "pkg": "^5.8.1"
+    "pkg": "^5.8.1",
+    "esbuild": "^0.25.12"
   }
 }

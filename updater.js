@@ -1,7 +1,13 @@
-const axios = require('axios');
-const fs = require('fs-extra');
-const path = require('path');
-const { spawn } = require('child_process');
+import axios from 'axios';
+import fs from 'fs-extra';
+import path from 'path';
+import { spawn } from 'child_process';
+import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 class Updater {
   constructor(options = {}) {
@@ -169,4 +175,4 @@ del "%~f0"
   }
 }
 
-module.exports = Updater;
+export default Updater;
