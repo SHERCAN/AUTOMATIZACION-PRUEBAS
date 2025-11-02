@@ -5,18 +5,21 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
-  build:
+  build-and-release:
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout código
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Setup Node.js
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4
       with:
-        node-version: '22'
+        node-version: '16'
 
     - name: Setup pnpm
       uses: pnpm/action-setup@v2
@@ -31,50 +34,37 @@ jobs:
         VERSION=${GITHUB_REF#refs/tags/v}
         node -e "const pkg=require('./package.json'); pkg.version='$VERSION'; require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
 
+    - name: Crear directorio dist
+      run: mkdir -p dist
+
     - name: Compilar para Windows
       run: pnpm run build:pkg:win
 
     - name: Compilar para Linux
       run: pnpm run build:pkg:linux
 
-    - name: Crear Release
-      id: create_release
-      uses: actions/create-release@v1
+    - name: Crear Release con gh CLI
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
-        body: |
-          ## Cambios en esta versión
-          
-          Ejecutables compilados automáticamente.
-          
-          ### Instalación
-          - **Windows**: Descarga `miapp-win.exe`
-          - **Linux**: Descarga `miapp-linux` y dale permisos de ejecución con `chmod +x miapp-linux`
-          
-          ### Auto-actualización
-          La aplicación verifica automáticamente si hay nuevas versiones al iniciarse.
-        draft: false
-        prerelease: false
-
-    - name: Subir ejecutable Windows
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./dist/miapp-win.exe
-        asset_name: miapp-win.exe
-        asset_content_type: application/octet-stream
-
-    - name: Subir ejecutable Linux
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./dist/miapp-linux
-        asset_name: miapp-linux
-        asset_content_type: application/octet-stream
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/}
+        
+        # Crear el release con notas
+        gh release create "$VERSION" \
+          --title "Release $VERSION" \
+          --notes "## Cambios en esta versión
+        
+        Ejecutables compilados automáticamente para Windows y Linux.
+        
+        ### Instalación
+        - **Windows**: Descarga \`miapp-win.exe\`
+        - **Linux**: Descarga \`miapp-linux\` y dale permisos de ejecución con \`chmod +x miapp-linux\`
+        
+        ### Auto-actualización
+        La aplicación verifica automáticamente si hay nuevas versiones al iniciarse.
+        
+        ---
+        **Versión**: $VERSION  
+        **Fecha**: $(date +'%Y-%m-%d %H:%M:%S UTC')" \
+          dist/miapp-win.exe \
+          dist/miapp-linux
