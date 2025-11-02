@@ -3,8 +3,6 @@ import path from "path";
 import axios from "axios";
 import yaml from "js-yaml";
 import { gzip } from "node-gzip";
-import pLimit from "p-limit";
-import { json } from "stream/consumers";
 import Updater from "./updater.js";
 const CONFIG_PATH = "./config.yml";
 
