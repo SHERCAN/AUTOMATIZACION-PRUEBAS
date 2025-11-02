@@ -12,7 +12,7 @@ Es importante tener en cuenta que los archivos que se coloquen dentro de las sub
 
 Por favor, asegúrese de que los archivos cumplan con este requisito antes de colocarlos en las carpetas correspondientes.
 ### concurrencia
-La configuración de concurrencia permite definir cuales archivos se procesarán simultáneamente, cada numero en concurrencia dara como objetivo un grupo que se enviara de manera simultanea.
+La configuración de concurrencia permite definir cuales archivos se procesarán simultáneamente, cada numero en concurrencia dara como objetivo un grupo que se enviara de manera simultanea, esto es el archivo .yml
 ```
 apis:
   na1:

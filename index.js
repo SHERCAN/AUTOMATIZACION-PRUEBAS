@@ -42,7 +42,6 @@ async function procesarCarpeta(apiConfig, token, indiceEnvio = 1) {
 
   try {
     // Leer todos los archivos de la carpeta
-
     const archivos = (await fs.readdir(apiConfig.carpeta_archivos)).filter(
       (f) =>
         f.toLowerCase().endsWith(".json") || f.toLowerCase().endsWith(".xml")
@@ -93,7 +92,7 @@ async function procesarCarpeta(apiConfig, token, indiceEnvio = 1) {
 
     // Verificar que al menos un archivo existe
     if (!archivoJson && !archivoXml) {
-      console.log(
+      console.error(
         `⚠️ No hay archivos JSON ni XML para procesar en ${apiConfig.carpeta_archivos}`
       );
       return;
@@ -141,7 +140,7 @@ async function procesarCarpeta(apiConfig, token, indiceEnvio = 1) {
     await guardar(responsePath, res.data);
     console.log(`✅ Enviado correctamente -> ${responsePath}`);
   } catch (err) {
-    console.log(err);
+    console.error(err);
     const sufijo = `_envio${indiceEnvio}`;
 
     // Buscar un nombre de archivo único para errores
@@ -261,6 +260,5 @@ async function start() {
     await pauseBeforeExit();
   }
 }
-
 // Iniciar la aplicación
 start();
