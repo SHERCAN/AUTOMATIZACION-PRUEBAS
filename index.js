@@ -42,13 +42,15 @@ async function procesarCarpeta(apiConfig, token, indiceEnvio = 1) {
 
   try {
     // Leer todos los archivos de la carpeta
+
     const archivos = (await fs.readdir(apiConfig.carpeta_archivos)).filter(
-      (f) => f.endsWith(".json") || f.endsWith(".xml")
+      (f) =>
+        f.toLowerCase().endsWith(".json") || f.toLowerCase().endsWith(".xml")
     );
 
     let payload = {
       rips: null,
-      xmlFevFile: null
+      xmlFevFile: null,
     };
 
     let archivoJson = null;
@@ -57,7 +59,7 @@ async function procesarCarpeta(apiConfig, token, indiceEnvio = 1) {
     // Buscar archivos JSON y XML
     for (const archivo of archivos) {
       const ext = path.parse(archivo).ext.toLowerCase();
-      
+
       if (ext === ".json" && !archivoJson) {
         archivoJson = archivo;
       } else if (ext === ".xml" && !archivoXml) {
@@ -91,7 +93,9 @@ async function procesarCarpeta(apiConfig, token, indiceEnvio = 1) {
 
     // Verificar que al menos un archivo existe
     if (!archivoJson && !archivoXml) {
-      console.log(`⚠️ No hay archivos JSON ni XML para procesar en ${apiConfig.carpeta_archivos}`);
+      console.log(
+        `⚠️ No hay archivos JSON ni XML para procesar en ${apiConfig.carpeta_archivos}`
+      );
       return;
     }
 
@@ -100,9 +104,9 @@ async function procesarCarpeta(apiConfig, token, indiceEnvio = 1) {
     console.log("url:", apiConfig.url);
     console.log("payload keys:", Object.keys(payload));
 
-    const finalHeaders = { 
-      ...headersBase, 
-      "Content-Type": "application/json" 
+    const finalHeaders = {
+      ...headersBase,
+      "Content-Type": "application/json",
     };
     let bodyToSend = JSON.stringify(payload);
     if (apiConfig.comprimir === true) {
@@ -115,15 +119,17 @@ async function procesarCarpeta(apiConfig, token, indiceEnvio = 1) {
     });
 
     const sufijo = `_envio${indiceEnvio}`;
-    const nombreBase = archivoJson ? path.parse(archivoJson).name : path.parse(archivoXml).name;
-    
+    const nombreBase = archivoJson
+      ? path.parse(archivoJson).name
+      : path.parse(archivoXml).name;
+
     // Buscar un nombre de archivo único
     let contador = 1;
     let responsePath = path.join(
       carpetaSalida,
       `${nombreBase}${sufijo}_res.txt`
     );
-    
+
     while (await fs.pathExists(responsePath)) {
       responsePath = path.join(
         carpetaSalida,
@@ -134,18 +140,14 @@ async function procesarCarpeta(apiConfig, token, indiceEnvio = 1) {
 
     await guardar(responsePath, res.data);
     console.log(`✅ Enviado correctamente -> ${responsePath}`);
-    
   } catch (err) {
     console.log(err);
     const sufijo = `_envio${indiceEnvio}`;
-    
+
     // Buscar un nombre de archivo único para errores
     let contador = 1;
-    let errorPath = path.join(
-      carpetaSalida,
-      `error${sufijo}_res_error.txt`
-    );
-    
+    let errorPath = path.join(carpetaSalida, `error${sufijo}_res_error.txt`);
+
     while (await fs.pathExists(errorPath)) {
       errorPath = path.join(
         carpetaSalida,
@@ -153,7 +155,7 @@ async function procesarCarpeta(apiConfig, token, indiceEnvio = 1) {
       );
       contador++;
     }
-    
+
     let responseBody = null;
     if (err.response) {
       if (typeof err.response.data === "object") {
@@ -164,7 +166,7 @@ async function procesarCarpeta(apiConfig, token, indiceEnvio = 1) {
     } else {
       responseBody = { error: err.message };
     }
-    
+
     await guardar(errorPath, responseBody);
     console.error(`❌ Error enviando: ${JSON.stringify(responseBody)}`);
     console.log(`⚠️  Detalle guardado en: ${errorPath}`);
@@ -177,7 +179,7 @@ async function ejecutar() {
 
   // Agrupar APIs por nivel de concurrencia
   const gruposPorConcurrencia = new Map();
-  
+
   for (const [apiName, apiConfig] of Object.entries(config.apis)) {
     const nivel = Number(apiConfig.concurrencia) || 1;
     if (!gruposPorConcurrencia.has(nivel)) {
@@ -187,13 +189,17 @@ async function ejecutar() {
   }
 
   // Ordenar los grupos por nivel (1, 2, 3, ...)
-  const nivelesOrdenados = Array.from(gruposPorConcurrencia.keys()).sort((a, b) => a - b);
+  const nivelesOrdenados = Array.from(gruposPorConcurrencia.keys()).sort(
+    (a, b) => a - b
+  );
 
   // Ejecutar grupos secuencialmente
   for (const nivel of nivelesOrdenados) {
     const apisEnGrupo = gruposPorConcurrencia.get(nivel);
-    console.log(`\n📦 Ejecutando GRUPO ${nivel} (${apisEnGrupo.length} APIs en paralelo)`);
-    
+    console.log(
+      `\n📦 Ejecutando GRUPO ${nivel} (${apisEnGrupo.length} APIs en paralelo)`
+    );
+
     // Ejecutar todas las APIs del grupo en paralelo
     await Promise.all(
       apisEnGrupo.map(async ({ apiName, apiConfig }) => {
@@ -204,40 +210,55 @@ async function ejecutar() {
         await procesarCarpeta(apiConfig, token, nivel);
       })
     );
-    
+
     console.log(`✅ Grupo ${nivel} completado\n`);
   }
 
   console.log("✅ Todos los envíos completados.");
+}
+async function pauseBeforeExit() {
+  const readline = await import("readline");
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    rl.question("\n\n✋ Presiona ENTER para cerrar...", () => {
+      rl.close();
+      resolve();
+    });
+  });
 }
 // Función de inicio con verificación de actualizaciones
 async function start() {
   try {
     // Configurar el updater con tu información de GitHub
     const updater = new Updater({
-      owner: 'SHERCAN',  // Cambia esto
-      repo: 'AUTOMATIZACION-PRUEBAS',       // Cambia esto
-      currentVersion: require('./package.json').version
+      owner: "SHERCAN", // Cambia esto
+      repo: "AUTOMATIZACION-PRUEBAS", // Cambia esto
+      currentVersion: require("./package.json").version,
     });
 
     // Verificar actualizaciones antes de iniciar
-    console.log('═══════════════════════════════════════');
-    console.log('  Verificador de Actualizaciones');
-    console.log('═══════════════════════════════════════\n');
-    
+    console.log("═══════════════════════════════════════");
+    console.log("  Verificador de Actualizaciones");
+    console.log("═══════════════════════════════════════\n");
+
     const updated = await updater.update();
-    
+
     // Si no hay actualización o hay error, continuar normalmente
     if (!updated) {
-      console.log('\n═══════════════════════════════════════\n');
+      console.log("\n═══════════════════════════════════════\n");
       await ejecutar().catch((err) => console.error("Error general:", err));
+      await pauseBeforeExit();
     }
     // Si hay actualización, el updater reiniciará la app automáticamente
-    
   } catch (error) {
-    console.error('Error al iniciar:', error);
+    console.error("Error al iniciar:", error);
     // En caso de error, ejecutar la aplicación de todas formas
     await ejecutar().catch((err) => console.error("Error general:", err));
+    await pauseBeforeExit();
   }
 }
 
