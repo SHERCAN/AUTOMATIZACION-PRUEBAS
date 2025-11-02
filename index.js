@@ -18,7 +18,6 @@ async function obtenerToken(config) {
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
   console.log("🔑 Generando nuevo token...");
   const url = `${config.base_url}${config.auth_endpoint}`;
-  // console.log(config.auth_data);
   try {
     const res = await axios.post(url, config.auth_data, {
       headers: { "Content-Type": "application/json" },
@@ -33,12 +32,8 @@ async function obtenerToken(config) {
   }
 }
 
-async function procesarArchivo(apiConfig, archivo, token, indiceEnvio = 1) {
-  const rutaArchivo = path.join(apiConfig.carpeta_archivos, archivo);
-  const nombreArchivo = path.parse(archivo).name;
-  const ext = path.parse(archivo).ext.toLowerCase();
-  const carpetaSalida =
-    apiConfig.carpeta_respuestas || apiConfig.carpeta_archivos;
+async function procesarCarpeta(apiConfig, token, indiceEnvio = 1) {
+  const carpetaSalida = apiConfig.carpeta_archivos;
   await fs.ensureDir(carpetaSalida);
 
   const headersBase = { Authorization: `Bearer ${token}` };
@@ -48,99 +43,132 @@ async function procesarArchivo(apiConfig, archivo, token, indiceEnvio = 1) {
   }
 
   try {
+    // Leer todos los archivos de la carpeta
+    const archivos = (await fs.readdir(apiConfig.carpeta_archivos)).filter(
+      (f) => f.endsWith(".json") || f.endsWith(".xml")
+    );
 
-    if (ext === ".xml") {
-      const posibleJson = path.join(
-        apiConfig.carpeta_archivos,
-        `${nombreArchivo}.json`
-      );
-      if (await fs.pathExists(posibleJson)) {
-        console.log(
-          `ℹ️ Saltando ${archivo} porque existe ${nombreArchivo}.json (se procesará desde el .json)`
-        );
-        return;
+    let payload = {
+      rips: null,
+      xmlFevFile: null
+    };
+
+    let archivoJson = null;
+    let archivoXml = null;
+
+    // Buscar archivos JSON y XML
+    for (const archivo of archivos) {
+      const ext = path.parse(archivo).ext.toLowerCase();
+      
+      if (ext === ".json" && !archivoJson) {
+        archivoJson = archivo;
+      } else if (ext === ".xml" && !archivoXml) {
+        archivoXml = archivo;
       }
     }
 
-    let bodyToSend = null;
-    let finalHeaders = { ...headersBase, "Content-Type": "application/json" };
-
-    if (ext === ".json") {
-      const jsonRaw = await fs.readFile(rutaArchivo, "utf8");
-      let jsonObj;
+    // Procesar JSON si existe
+    if (archivoJson) {
+      const rutaJson = path.join(apiConfig.carpeta_archivos, archivoJson);
+      const jsonRaw = await fs.readFile(rutaJson, "utf8");
       try {
-        jsonObj = JSON.parse(jsonRaw);
+        payload.rips = JSON.parse(jsonRaw);
       } catch (e) {
-        jsonObj = { raw: jsonRaw };
+        payload.rips = { raw: jsonRaw };
       }
-      const xmlPath = path.join(
-        apiConfig.carpeta_archivos,
-        `${nombreArchivo}.xml`
-      );
-      const hasXml = await fs.pathExists(xmlPath);
-      let xmlBase64 = null;
-      if (hasXml) {
-        const xmlData = await fs.readFile(xmlPath, "utf8");
-        xmlBase64 = Buffer.from(xmlData, "utf8").toString("base64");
-      }
-      var payload;
-      if (!apiConfig.endpoint.toLowerCase().includes("consultarcuv")) {
-        payload = { rips: jsonObj };
-      } else {
-        payload = jsonObj;
-      }
-      if (hasXml) payload.xmlFevFile = xmlBase64;
-
-      bodyToSend = JSON.stringify(payload);
-    } else if (ext === ".xml") {
-      const xmlData = await fs.readFile(rutaArchivo, "utf8");
-      const xmlBase64 = Buffer.from(xmlData, "utf8").toString("base64");
-
-      payload = { xmlFevFile: xmlBase64 };
-      bodyToSend = JSON.stringify(payload);
+      console.log(`📄 JSON encontrado: ${archivoJson}`);
     } else {
-      const data = await fs.readFile(rutaArchivo);
-      bodyToSend = data;
+      console.log(`ℹ️ No se encontró archivo JSON`);
     }
 
-    console.log(`🚀 Enviando ${archivo} -> ${bodyToSend} ...`);
+    // Procesar XML si existe
+    if (archivoXml) {
+      const rutaXml = path.join(apiConfig.carpeta_archivos, archivoXml);
+      const xmlData = await fs.readFile(rutaXml, "utf8");
+      payload.xmlFevFile = Buffer.from(xmlData, "utf8").toString("base64");
+      console.log(`📄 XML encontrado: ${archivoXml}`);
+    } else {
+      console.log(`ℹ️ No se encontró archivo XML`);
+    }
 
-    // --- ENVÍO ---
-    console.log("url", apiConfig);
-    console.log("body", payload);
-    console.log("headers", finalHeaders);
-    finalHeaders["Content-Type"] = "application/json";
-    const res = await axios.post(apiConfig.url, payload, {
+    // Verificar que al menos un archivo existe
+    if (!archivoJson && !archivoXml) {
+      console.log(`⚠️ No hay archivos JSON ni XML para procesar en ${apiConfig.carpeta_archivos}`);
+      return;
+    }
+
+    const archivosTexto = [archivoJson, archivoXml].filter(Boolean).join(" + ");
+    console.log(`🚀 Enviando: ${archivosTexto}`);
+    console.log("url:", apiConfig.url);
+    console.log("payload keys:", Object.keys(payload));
+
+    const finalHeaders = { 
+      ...headersBase, 
+      "Content-Type": "application/json" 
+    };
+    let bodyToSend = JSON.stringify(payload);
+    if (apiConfig.comprimir === true) {
+      console.log("🗜️ Comprimiendo payload con gzip...");
+      bodyToSend = await gzip(bodyToSend);
+      finalHeaders["Content-Encoding"] = "gzip";
+    }
+    const res = await axios.post(apiConfig.url, bodyToSend, {
       headers: finalHeaders,
     });
-    console.log(res);
+
     const sufijo = `_envio${indiceEnvio}`;
-    const responsePath = path.join(
+    const nombreBase = archivoJson ? path.parse(archivoJson).name : path.parse(archivoXml).name;
+    
+    // Buscar un nombre de archivo único
+    let contador = 1;
+    let responsePath = path.join(
       carpetaSalida,
-      `${nombreArchivo}${sufijo}_res.txt`
+      `${nombreBase}${sufijo}_res.txt`
     );
-    //console.log(res.body);
+    
+    while (await fs.pathExists(responsePath)) {
+      responsePath = path.join(
+        carpetaSalida,
+        `${nombreBase}${sufijo}_res_${contador}.txt`
+      );
+      contador++;
+    }
+
     await guardar(responsePath, res.data);
-    console.log(`✅ Enviado: ${archivo} -> ${responsePath}`);
+    console.log(`✅ Enviado correctamente -> ${responsePath}`);
+    
   } catch (err) {
     console.log(err);
     const sufijo = `_envio${indiceEnvio}`;
-    // --- MANEJO DE ERROR ---
-    const errorPath = path.join(
+    
+    // Buscar un nombre de archivo único para errores
+    let contador = 1;
+    let errorPath = path.join(
       carpetaSalida,
-      `${nombreArchivo}${sufijo}_res_error.txt`
+      `error${sufijo}_res_error.txt`
     );
+    
+    while (await fs.pathExists(errorPath)) {
+      errorPath = path.join(
+        carpetaSalida,
+        `error${sufijo}_res_error_${contador}.txt`
+      );
+      contador++;
+    }
+    
     let responseBody = null;
     if (err.response) {
-      // Si el body viene como objeto, se deja tal cual; si es texto, se convierte en string.
       if (typeof err.response.data === "object") {
         responseBody = err.response.data;
       } else {
         responseBody = { rawBody: String(err.response.data) };
       }
+    } else {
+      responseBody = { error: err.message };
     }
+    
     await guardar(errorPath, responseBody);
-    console.error(`❌ Error enviando ${archivo}: ${responseBody}`);
+    console.error(`❌ Error enviando: ${JSON.stringify(responseBody)}`);
     console.log(`⚠️  Detalle guardado en: ${errorPath}`);
   }
 }
@@ -149,34 +177,39 @@ async function ejecutar() {
   const config = await loadConfig();
   const token = await obtenerToken(config);
 
+  // Agrupar APIs por nivel de concurrencia
+  const gruposPorConcurrencia = new Map();
+  
   for (const [apiName, apiConfig] of Object.entries(config.apis)) {
-    console.log(`🚀 Procesando API: ${apiName}`);
+    const nivel = Number(apiConfig.concurrencia) || 1;
+    if (!gruposPorConcurrencia.has(nivel)) {
+      gruposPorConcurrencia.set(nivel, []);
+    }
+    gruposPorConcurrencia.get(nivel).push({ apiName, apiConfig });
+  }
 
-    const archivos = (await fs.readdir(apiConfig.carpeta_archivos)).filter(
-      (f) => f.endsWith(".json") || f.endsWith(".xml")
+  // Ordenar los grupos por nivel (1, 2, 3, ...)
+  const nivelesOrdenados = Array.from(gruposPorConcurrencia.keys()).sort((a, b) => a - b);
+
+  // Ejecutar grupos secuencialmente
+  for (const nivel of nivelesOrdenados) {
+    const apisEnGrupo = gruposPorConcurrencia.get(nivel);
+    console.log(`\n📦 Ejecutando GRUPO ${nivel} (${apisEnGrupo.length} APIs en paralelo)`);
+    
+    // Ejecutar todas las APIs del grupo en paralelo
+    await Promise.all(
+      apisEnGrupo.map(async ({ apiName, apiConfig }) => {
+        console.log(`🚀 Procesando API: ${apiName} [Grupo ${nivel}]`);
+        console.log(`📁 Carpeta: ${apiConfig.carpeta_archivos}`);
+
+        apiConfig.url = `${config.base_url}${apiConfig.endpoint}`;
+        await procesarCarpeta(apiConfig, token, nivel);
+      })
     );
-
-    apiConfig.url = `${config.base_url}${apiConfig.endpoint}`;
-    const repeticiones = Number(apiConfig.concurrencia) || 1;
-
-    const concurr = Number(apiConfig.concurrencia) || 1;
-    const limit = pLimit(concurr);
-    const tareas = archivos.flatMap((a) =>
-      Array.from({ length: concurr }, (_, i) =>
-        limit(async () => {
-          const indiceEnvio = i + 1;
-          console.log(
-            `▶️ [${apiName}] Envío ${indiceEnvio}/${concurr} de ${a}`
-          );
-          await procesarArchivo(apiConfig, a, token, indiceEnvio);
-        })
-      )
-    );
-
-    await Promise.all(tareas);
+    
+    console.log(`✅ Grupo ${nivel} completado\n`);
   }
 
   console.log("✅ Todos los envíos completados.");
 }
-
 ejecutar().catch((err) => console.error("Error general:", err));

@@ -18,6 +18,8 @@ auth_data:
   #AppVersion: "5.4.4"
   reps: true
 
+# La funcionalidad de comprimir comprimira el body en gzip, según como esta configurada la api realmente no interesa agregar el header
+# concurrencia lo que hara sera enviar l
 # =========================
 # CONFIGURACIÓN DE CADA API
 # =========================
@@ -25,13 +27,11 @@ apis:
   fevrips:
     endpoint: "/api/PaquetesFevRips/CargarFevRips"
     carpeta_archivos: "./procesamiento/fevrips"
-    carpeta_respuestas: "./procesamientofevrips"
     comprimir: false
     concurrencia: 1
 
   # ConsultaCUV:
   #   endpoint: "/api/ConsultasFevRips/ConsultarCUV"
   #   carpeta_archivos: "./consultar"
-  #   carpeta_respuestas: "./consultar"
   #   comprimir: false
   #   concurrencia: 5
