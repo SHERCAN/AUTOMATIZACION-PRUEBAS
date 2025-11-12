@@ -23,7 +23,7 @@ jobs:
     - name: Cache Rust dependencies
       uses: Swatinem/rust-cache@v2
 
-    name: Actualizar versión en Cargo.toml
+    - name: Actualizar versión en Cargo.toml
       run: |
         $VERSION = $env:GITHUB_REF -replace 'refs/tags/v', ''
         $content = Get-Content Cargo.toml -Raw
