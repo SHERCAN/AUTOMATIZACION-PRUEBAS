@@ -23,10 +23,12 @@ jobs:
     - name: Cache Rust dependencies
       uses: Swatinem/rust-cache@v2
 
-    - name: Actualizar versión en Cargo.toml
+    name: Actualizar versión en Cargo.toml
       run: |
         $VERSION = $env:GITHUB_REF -replace 'refs/tags/v', ''
-        (Get-Content Cargo.toml) -replace 'version = ".*"', "version = `"$VERSION`"" | Set-Content Cargo.toml
+        $content = Get-Content Cargo.toml -Raw
+        $content = $content -replace '(?m)^\[package\][\r\n]+name = ".*"[\r\n]+version = "[^"]*"', "[package]`nname = `"AutomatizacionMin`"`nversion = `"$VERSION`""
+        $content | Set-Content Cargo.toml -NoNewline
 
     - name: Build para Windows
       run: cargo build --release --target x86_64-pc-windows-msvc
