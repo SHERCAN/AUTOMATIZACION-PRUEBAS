@@ -1,5 +1,5 @@
 [package]
-name = "mi_automatizador"
+name = "AutomatizacionMin"
 version = "0.1.7"
 edition = "2024"
 build = "build.rs"

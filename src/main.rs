@@ -69,8 +69,9 @@ async fn ejecutar() -> Result<()> {
             let api = api.clone();
             let token = token.clone();
             // let config = config.clone();   // <-- NO se usa → bórrala o marca _config
+            let value = config.clone();
             tareas.push(task::spawn(async move {
-                procesar_carpeta(&api, &token, nivel).await
+                procesar_carpeta(&api, &token, nivel,&value).await
             }));
         }
         for t in tareas {
@@ -91,7 +92,9 @@ async fn cargar_config() -> Result<Config> {
 
 async fn obtener_token(config: &Config) -> Result<String> {
     println!("🔑 Generando nuevo token...");
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true) // Aceptar certificados inválidos (solo para pruebas)
+        .build()?;
     let url = format!("{}{}", config.base_url, config.auth_endpoint);
     let res = client.post(&url).json(&config.auth_data).send().await?;
     let json: serde_json::Value = res.json().await?;
@@ -102,7 +105,7 @@ async fn obtener_token(config: &Config) -> Result<String> {
     Ok(token.to_string())
 }
 
-async fn procesar_carpeta(api: &ApiConfig, token: &str, indice_envio: u8) -> Result<()> {
+async fn procesar_carpeta(api: &ApiConfig, token: &str, indice_envio: u8,config: &Config) -> Result<()> {
     let carpeta = &api.carpeta_archivos;
     fs::create_dir_all(carpeta).await?;
 
@@ -173,8 +176,10 @@ async fn procesar_carpeta(api: &ApiConfig, token: &str, indice_envio: u8) -> Res
         headers.insert("Content-Encoding", "gzip".parse()?);
     }
 
-    let client = reqwest::Client::new();
-    let url = format!("{}{}", "http://example.com", api.endpoint); // Ajusta con tu base_url real
+    let client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true) // Aceptar certificados inválidos (solo para pruebas)
+        .build()?;
+    let url = format!("{}{}", &config.base_url, api.endpoint); // Ajusta con tu base_url real
     let res = client.post(&url).headers(headers).body(body).send().await?;
 
     let nombre_base = json_file.unwrap_or_else(|| xml_file.unwrap());

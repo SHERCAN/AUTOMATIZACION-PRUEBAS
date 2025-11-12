@@ -15,23 +15,34 @@ jobs:
     - name: Checkout código
       uses: actions/checkout@v4
 
-    - name: Setup Bun
-      uses: oven-sh/setup-bun@v1
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
       with:
-        bun-version: latest
+        targets: x86_64-pc-windows-msvc
 
-    - name: Instalar dependencias
-      run: bun install
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
 
-    - name: Actualizar versión en package.json
+    - name: Actualizar versión en Cargo.toml
       run: |
         $VERSION = $env:GITHUB_REF -replace 'refs/tags/v', ''
-        $pkg = Get-Content package.json | ConvertFrom-Json
-        $pkg.version = $VERSION
-        $pkg | ConvertTo-Json -Depth 10 | Set-Content package.json
+        (Get-Content Cargo.toml) -replace 'version = ".*"', "version = `"$VERSION`"" | Set-Content Cargo.toml
 
-    - name: Compilar para Windows
-      run: bun build index.js --compile --target=bun-windows-x64 --outfile dist/miapp-win.exe
+    - name: Build para Windows
+      run: cargo build --release --target x86_64-pc-windows-msvc
+
+    - name: Renombrar ejecutable
+      run: |
+        $VERSION = $env:GITHUB_REF -replace 'refs/tags/v', ''
+        Copy-Item "target/x86_64-pc-windows-msvc/release/AutomatizacionMin.exe" "dist/miapp-win.exe"
+      shell: pwsh
+
+    - name: Crear directorio dist
+      run: New-Item -ItemType Directory -Force -Path dist
+
+    - name: Copiar ejecutable a dist
+      run: |
+        Copy-Item "target/x86_64-pc-windows-msvc/release/AutomatizacionMin.exe" "dist/miapp-win.exe"
 
     - name: Upload Windows artifact
       uses: actions/upload-artifact@v4
@@ -39,36 +50,8 @@ jobs:
         name: windows-executable
         path: dist/miapp-win.exe
 
-  build-linux:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout código
-      uses: actions/checkout@v4
-
-    - name: Setup Bun
-      uses: oven-sh/setup-bun@v1
-      with:
-        bun-version: latest
-
-    - name: Instalar dependencias
-      run: bun install
-
-    - name: Actualizar versión en package.json
-      run: |
-        VERSION=${GITHUB_REF#refs/tags/v}
-        bun -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json')); pkg.version='$VERSION'; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));"
-
-    - name: Compilar para Linux
-      run: bun build index.js --compile --target=bun-linux-x64 --outfile dist/miapp-linux
-
-    - name: Upload Linux artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: linux-executable
-        path: dist/miapp-linux
-
   create-release:
-    needs: [build-windows, build-linux]
+    needs: [build-windows]
     runs-on: ubuntu-latest
     steps:
     - name: Checkout código
@@ -80,36 +63,29 @@ jobs:
         name: windows-executable
         path: dist/
 
-    - name: Download Linux executable
-      uses: actions/download-artifact@v4
-      with:
-        name: linux-executable
-        path: dist/
-
     - name: Crear Release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         VERSION=${GITHUB_REF#refs/tags/}
         
-        chmod +x dist/miapp-linux
-        
         gh release create "$VERSION" \
           --title "Release $VERSION" \
           --notes "## Cambios en esta versión
         
-        Ejecutables compilados con Bun runtime.
+        Ejecutable compilado con Rust (optimizado para tamaño y rendimiento).
         
         ### Instalación
         - **Windows**: Descarga \`miapp-win.exe\` y ejecútalo
-        - **Linux**: Descarga \`miapp-linux\`, dale permisos con \`chmod +x miapp-linux\` y ejecútalo
         
-        ### Auto-actualización
-        La aplicación verifica automáticamente actualizaciones al iniciarse.
+        ### Características
+        - Binario optimizado con LTO y strip
+        - Sin dependencias externas
+        - Tamaño reducido al mínimo
         
         ---
         **Versión**: $VERSION  
-        **Runtime**: Bun  
+        **Lenguaje**: Rust  
+        **Target**: x86_64-pc-windows-msvc  
         **Fecha**: $(date +'%Y-%m-%d %H:%M:%S UTC')" \
-          dist/miapp-win.exe \
-          dist/miapp-linux
+          dist/miapp-win.exe
