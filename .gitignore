@@ -4,3 +4,4 @@ config.yml
 pnpm-lock.yaml
 base
 dist
+target
