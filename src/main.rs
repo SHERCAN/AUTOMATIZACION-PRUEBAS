@@ -129,10 +129,21 @@ async fn procesar_carpeta(api: &ApiConfig, token: &str, indice_envio: u8,config:
 
     if let Some(json_name) = &json_file {
         let path = Path::new(carpeta).join(json_name);
-        let content = fs::read_to_string(&path).await?;
-        let parsed = serde_json::from_str::<serde_json::Value>(&content);
-        payload["rips"] = parsed.unwrap_or_else(|_| json!({ "raw": content }));
-        println!("📄 JSON encontrado: {}", json_name);
+        
+        // Leer como bytes para detectar BOM u otros caracteres ocultos
+        let bytes = fs::read(&path).await?;
+        
+        // Convertir a string (lossy para evitar panic si no es UTF-8 válido)
+        let content_string = String::from_utf8_lossy(&bytes);
+        
+        // Limpiamos BOM u otros caracteres invisibles al inicio
+        let content_cleaned = content_string.trim_start_matches('\u{feff}').trim();
+
+        let parsed: serde_json::Value = serde_json::from_str(content_cleaned)
+            .unwrap_or_else(|e| panic!("Error al parsear JSON en {}: {}", json_name, e));
+        
+        payload["rips"] = parsed;
+        println!("📄 JSON procesado correctamente: {}", json_name);
     } else {
         println!("ℹ️ No se encontró archivo JSON");
     }
@@ -180,6 +191,7 @@ async fn procesar_carpeta(api: &ApiConfig, token: &str, indice_envio: u8,config:
         .danger_accept_invalid_certs(true) // Aceptar certificados inválidos (solo para pruebas)
         .build()?;
     let url = format!("{}{}", &config.base_url, api.endpoint); // Ajusta con tu base_url real
+    println!("🚀 Body to send: {}", body);
     let res = client.post(&url).headers(headers).body(body).send().await?;
 
     let nombre_base = json_file.unwrap_or_else(|| xml_file.unwrap());
