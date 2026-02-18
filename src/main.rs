@@ -21,6 +21,10 @@ async fn main() -> Result<()> {
             SetConsoleOutputCP(65001); // UTF-8
         }
     }
+
+    // Limpiar archivos de actualización anteriores (.old)
+    updater::Updater::cleanup();
+
     println!("═══════════════════════════════════════");
     println!("  Verificador de Actualizaciones");
     println!("═══════════════════════════════════════\n");
@@ -191,7 +195,6 @@ async fn procesar_carpeta(api: &ApiConfig, token: &str, indice_envio: u8,config:
         .danger_accept_invalid_certs(true) // Aceptar certificados inválidos (solo para pruebas)
         .build()?;
     let url = format!("{}{}", &config.base_url, api.endpoint); // Ajusta con tu base_url real
-    println!("🚀 Body to send: {}", body);
     let res = client.post(&url).headers(headers).body(body).send().await?;
 
     let nombre_base = json_file.unwrap_or_else(|| xml_file.unwrap());

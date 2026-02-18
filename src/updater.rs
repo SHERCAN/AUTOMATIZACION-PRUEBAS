@@ -111,28 +111,43 @@ impl Updater {
     /*  ----  apply update  ----  */
     pub async fn apply(&self, new: &Path) -> Result<()> {
         let current = self.current_exe();
-        let backup = current.with_extension("backup");
-        let flag = self.updating_flag();
+        let old = current.with_extension("old");
 
         println!("🔄 Aplicando actualización...");
 
-        // flag
-        fs::write(&flag, Utc::now().to_rfc3339())?;
-
-        // backup
-        fs::copy(&current, &backup)?;
-
-        // script de reemplazo + reinicio
-        if cfg!(windows) {
-            self.windows_script(new, &backup, &flag)?;
-        } else {
-            self.unix_script(new, &backup, &flag)?;
+        // 1. Renombramos el ejecutable actual a .old
+        // En Windows esto es legal aunque el programa esté corriendo.
+        if old.exists() {
+            let _ = fs::remove_file(&old);
         }
+        fs::rename(&current, &old).context("No se pudo renombrar el archivo actual")?;
 
-        // salimos para que el script haga su trabajo
+        // 2. Movemos el nuevo ejecutable al nombre original
+        fs::rename(new, &current).context("No se pudo mover el nuevo archivo")?;
+
         println!("✅ Actualización preparada. Reiniciando...");
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        // 3. Iniciamos la nueva versión
+        process::Command::new(&current)
+            .spawn()
+            .context("No se pudo reiniciar la aplicación")?;
+
+        // 4. Salimos
         process::exit(0);
+    }
+
+    /*  -------  Limpieza de archivos viejos al arrancar  ------- */
+    pub fn cleanup() {
+        if let Ok(exe) = env::current_exe() {
+            let old = exe.with_extension("old");
+            if old.exists() {
+                let _ = fs::remove_file(old);
+            }
+            let updating = exe.with_extension("updating");
+            if updating.exists() {
+                let _ = fs::remove_file(updating);
+            }
+        }
     }
 
     /*  ----  helpers  ----  */
@@ -148,61 +163,6 @@ impl Updater {
 
     fn updating_flag(&self) -> PathBuf {
         self.current_exe().with_extension("updating")
-    }
-
-    /*  ----  windows batch  ----  */
-    fn windows_script(&self, new: &Path, _backup: &Path, flag: &Path) -> Result<()> {
-        let current = self.current_exe();
-        let script = format!(
-            r#"@echo off
-chcp 65001 >nul
-echo Aplicando actualización...
-timeout /t 3 /nobreak >nul
-:retry
-del /F /Q "{current}" 2>nul
-if exist "{current}" ( timeout /t 1 /nobreak >nul & goto retry )
-move /Y "{new}" "{current}"
-del /F /Q "{flag}"
-echo Actualización completada. Iniciando...
-start "" "{current}"
-timeout /t 1 /nobreak >nul
-del "%~f0"
-"#,
-            current = current.display(),
-            new = new.display(),
-            flag = flag.display()
-        );
-        let bat = current.with_extension("bat");
-        fs::write(&bat, script)?;
-        // lanzar batch detached
-        process::Command::new("cmd")
-            .args(&["/c", bat.to_str().unwrap()])
-            .spawn()
-            .context("no se pudo lanzar el script de actualización")?;
-        Ok(())
-    }
-
-    /*  ----  unix shell  ----  */
-    fn unix_script(&self, new: &Path, _backup: &Path, flag: &Path) -> Result<()> {
-        let current = self.current_exe();
-        let script = format!(
-            r#"#!/bin/bash
-sleep 3
-rm -f "{current}"
-mv "{new}" "{current}"
-chmod +x "{current}"
-rm -f "{flag}"
-"{current}" &
-"#,
-            current = current.display(),
-            new = new.display(),
-            flag = flag.display()
-        );
-        let sh = current.with_extension("sh");
-        fs::write(&sh, &script)?;
-        //std::os::unix::fs::chmod(&sh, 0o755)?;
-        process::Command::new(sh).spawn().context("shell update")?;
-        Ok(())
     }
 }
 
