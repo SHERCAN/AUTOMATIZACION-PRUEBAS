@@ -15,4 +15,5 @@ pub struct ApiConfig {
     pub carpeta_archivos: String,
     pub concurrencia: Option<u8>,
     pub comprimir: Option<bool>,
+    pub repeticiones: Option<u32>,
 }

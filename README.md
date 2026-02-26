@@ -39,6 +39,13 @@ apis:
     - na1
         - na1.json
     ...
-
 ```
-
+```
+apis:
+  fevrips:
+    endpoint: "/api/PaquetesFevRips/CargarFevRips"
+    carpeta_archivos: "./procesamiento/fevrips"
+    comprimir: false
+    concurrencia: 1
+    repeticiones: 1   # Numero de repeticiones que se haran de los archivos, esto es concurrente
+```

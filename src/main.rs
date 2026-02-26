@@ -9,8 +9,10 @@ use flate2::write::GzEncoder;
 use serde_json::json;
 use std::io::Write;
 use std::path::Path;
+use std::sync::Arc;
 use tokio::fs;
 use tokio::task;
+use tokio::sync::Barrier;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -69,14 +71,34 @@ async fn ejecutar() -> Result<()> {
         );
         let mut tareas = vec![];
         for (_nombre, api) in apis {
-            // <-- _nombre
-            let api = api.clone();
-            let token = token.clone();
-            // let config = config.clone();   // <-- NO se usa → bórrala o marca _config
-            let value = config.clone();
-            tareas.push(task::spawn(async move {
-                procesar_carpeta(&api, &token, nivel,&value).await
-            }));
+            let n_repeticiones = api.repeticiones.unwrap_or(1);
+            
+            // Preparar los datos una sola vez para todas las repeticiones del mismo API
+            println!("📝 Preparando datos para API {}...", _nombre);
+            let datos_preparados = preparar_datos(api, &token, nivel, &config).await?;
+            
+            let client = reqwest::Client::builder()
+                .danger_accept_invalid_certs(true)
+                .build()?;
+            
+            let arc_datos = Arc::new(datos_preparados);
+            let arc_client = Arc::new(client);
+            let barrera = Arc::new(Barrier::new(n_repeticiones as usize));
+            
+            println!("🚀 Disparando {} repeticiones simultáneas...", n_repeticiones);
+            
+            for i in 1..=n_repeticiones {
+                let datos = Arc::clone(&arc_datos);
+                let client = Arc::clone(&arc_client);
+                let b = Arc::clone(&barrera);
+                
+                tareas.push(task::spawn(async move {
+                    // Esperar a que TODOS estén listos en la barrera
+                    b.wait().await;
+                    // Enviar inmediatamente
+                    enviar_datos(client, datos, i).await
+                }));
+            }
         }
         for t in tareas {
             let _ = t.await;
@@ -109,11 +131,20 @@ async fn obtener_token(config: &Config) -> Result<String> {
     Ok(token.to_string())
 }
 
-async fn procesar_carpeta(api: &ApiConfig, token: &str, indice_envio: u8,config: &Config) -> Result<()> {
-    let carpeta = &api.carpeta_archivos;
-    fs::create_dir_all(carpeta).await?;
+struct DatosEnvio {
+    url: String,
+    body: String,
+    headers: reqwest::header::HeaderMap,
+    carpeta: String,
+    nombre_base: String,
+    indice_envio: u8,
+}
 
-    let mut entries = fs::read_dir(carpeta).await?;
+async fn preparar_datos(api: &ApiConfig, token: &str, nivel_concurrencia: u8, config: &Config) -> Result<DatosEnvio> {
+    let carpeta = api.carpeta_archivos.clone();
+    fs::create_dir_all(&carpeta).await?;
+
+    let mut entries = fs::read_dir(&carpeta).await?;
     let mut json_file = None;
     let mut xml_file = None;
 
@@ -126,57 +157,24 @@ async fn procesar_carpeta(api: &ApiConfig, token: &str, indice_envio: u8,config:
         }
     }
 
-    let mut payload = json!({
-        "rips": null,
-        "xmlFevFile": null
-    });
+    if json_file.is_none() && xml_file.is_none() {
+        return Err(anyhow::anyhow!("No hay archivos en {}", carpeta));
+    }
+
+    let mut payload = json!({"rips": null, "xmlFevFile": null});
 
     if let Some(json_name) = &json_file {
-        let path = Path::new(carpeta).join(json_name);
-        
-        // Leer como bytes para detectar BOM u otros caracteres ocultos
+        let path = Path::new(&carpeta).join(json_name);
         let bytes = fs::read(&path).await?;
-        
-        // Convertir a string (lossy para evitar panic si no es UTF-8 válido)
-        let content_string = String::from_utf8_lossy(&bytes);
-        
-        // Limpiamos BOM u otros caracteres invisibles al inicio
-        let content_cleaned = content_string.trim_start_matches('\u{feff}').trim();
-
-        let parsed: serde_json::Value = serde_json::from_str(content_cleaned)
-            .unwrap_or_else(|e| panic!("Error al parsear JSON en {}: {}", json_name, e));
-        
-        payload["rips"] = parsed;
-        println!("📄 JSON procesado correctamente: {}", json_name);
-    } else {
-        println!("ℹ️ No se encontró archivo JSON");
+        let content_cleaned = String::from_utf8_lossy(&bytes).trim_start_matches('\u{feff}').trim().to_string();
+        payload["rips"] = serde_json::from_str(&content_cleaned)?;
     }
 
     if let Some(xml_name) = &xml_file {
-        let path = Path::new(carpeta).join(xml_name);
+        let path = Path::new(&carpeta).join(xml_name);
         let content = fs::read_to_string(&path).await?;
         payload["xmlFevFile"] = json!(general_purpose::STANDARD.encode(content));
-        println!("📄 XML encontrado: {}", xml_name);
-    } else {
-        println!("ℹ️ No se encontró archivo XML");
     }
-
-    if json_file.is_none() && xml_file.is_none() {
-        eprintln!(
-            "⚠️ No hay archivos JSON ni XML para procesar en {}",
-            carpeta
-        );
-        return Ok(());
-    }
-
-    let archivos_texto = [json_file.as_ref(), xml_file.as_ref()]
-        .iter() // Iterador sobre Option<&String>
-        .flatten() // quitamos el Option (None se ignora)
-        .copied() // &&String  →  &String
-        .cloned() // &String   →  String
-        .collect::<Vec<String>>()
-        .join(" + ");
-    println!("🚀 Enviando: {}", archivos_texto);
 
     let mut body = serde_json::to_string(&payload)?;
     let mut headers = reqwest::header::HeaderMap::new();
@@ -184,37 +182,39 @@ async fn procesar_carpeta(api: &ApiConfig, token: &str, indice_envio: u8,config:
     headers.insert("Content-Type", "application/json".parse()?);
 
     if api.comprimir.unwrap_or(false) {
-        println!("🗜️ Comprimiendo payload con gzip...");
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(body.as_bytes())?;
         body = String::from_utf8(encoder.finish()?)?;
         headers.insert("Content-Encoding", "gzip".parse()?);
     }
 
-    let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(true) // Aceptar certificados inválidos (solo para pruebas)
-        .build()?;
-    let url = format!("{}{}", &config.base_url, api.endpoint); // Ajusta con tu base_url real
-    let res = client.post(&url).headers(headers).body(body).send().await?;
+    let nombre_base = json_file.or(xml_file).unwrap();
+    let nombre_base = Path::new(&nombre_base).file_stem().unwrap().to_string_lossy().to_string();
 
-    let nombre_base = json_file.unwrap_or_else(|| xml_file.unwrap());
-    let nombre_base = Path::new(&nombre_base)
-        .file_stem()
-        .unwrap()
-        .to_string_lossy()
-        .to_string();
-    let sufijo = format!("_envio{}", indice_envio);
-    let mut response_path = Path::new(carpeta).join(format!("{}{}_res.txt", nombre_base, sufijo));
-    let mut counter = 1;
-    while response_path.exists() {
-        response_path =
-            Path::new(carpeta).join(format!("{}{}_res_{}.txt", nombre_base, sufijo, counter));
-        counter += 1;
-    }
+    Ok(DatosEnvio {
+        url: format!("{}{}", config.base_url, api.endpoint),
+        body,
+        headers,
+        carpeta,
+        nombre_base,
+        indice_envio: nivel_concurrencia,
+    })
+}
 
+async fn enviar_datos(client: Arc<reqwest::Client>, datos: Arc<DatosEnvio>, item_rep: u32) -> Result<()> {
+    let res = client.post(&datos.url)
+        .headers(datos.headers.clone())
+        .body(datos.body.clone())
+        .send().await?;
+
+    let sufijo = format!("_envio{}_rep{}", datos.indice_envio, item_rep);
+    let mut response_path = Path::new(&datos.carpeta).join(format!("{}{}_res.txt", datos.nombre_base, sufijo));
+    
+    // Para no bloquearnos con chequeos de existencia de archivo en el envío masivo, 
+    // confiamos en el nombre único por repetición.
     let response_text = res.text().await?;
     fs::write(&response_path, response_text).await?;
-    println!("✅ Enviado correctamente -> {}", response_path.display());
-
+    
     Ok(())
 }
+

@@ -29,6 +29,7 @@ apis:
     carpeta_archivos: "./procesamiento/fevrips"
     comprimir: false
     concurrencia: 1
+    repeticiones: 1      # Cantidad de veces que se enviará la misma petición en paralelo (estrés)
 
   # ConsultaCUV:
   #   endpoint: "/api/ConsultasFevRips/ConsultarCUV"
