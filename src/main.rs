@@ -133,7 +133,7 @@ async fn obtener_token(config: &Config) -> Result<String> {
 
 struct DatosEnvio {
     url: String,
-    body: String,
+    body: Vec<u8>,
     headers: reqwest::header::HeaderMap,
     carpeta: String,
     nombre_base: String,
@@ -172,19 +172,20 @@ async fn preparar_datos(api: &ApiConfig, token: &str, nivel_concurrencia: u8, co
 
     if let Some(xml_name) = &xml_file {
         let path = Path::new(&carpeta).join(xml_name);
-        let content = fs::read_to_string(&path).await?;
-        payload["xmlFevFile"] = json!(general_purpose::STANDARD.encode(content));
+        let bytes = fs::read(&path).await?;
+        payload["xmlFevFile"] = json!(general_purpose::STANDARD.encode(&bytes));
     }
 
-    let mut body = serde_json::to_string(&payload)?;
+    let body_str = serde_json::to_string(&payload)?;
+    let mut body_bytes = body_str.into_bytes();
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert("Authorization", format!("Bearer {}", token).parse()?);
     headers.insert("Content-Type", "application/json".parse()?);
 
     if api.comprimir.unwrap_or(false) {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-        encoder.write_all(body.as_bytes())?;
-        body = String::from_utf8(encoder.finish()?)?;
+        encoder.write_all(&body_bytes)?;
+        body_bytes = encoder.finish()?;
         headers.insert("Content-Encoding", "gzip".parse()?);
     }
 
@@ -193,7 +194,7 @@ async fn preparar_datos(api: &ApiConfig, token: &str, nivel_concurrencia: u8, co
 
     Ok(DatosEnvio {
         url: format!("{}{}", config.base_url, api.endpoint),
-        body,
+        body: body_bytes,
         headers,
         carpeta,
         nombre_base,
